@@ -63,15 +63,14 @@ class EventHandler:
 
         text = extract_text(context.message, context.raw_message)
         triggered, text = strip_ai_prefix(text)
+        text = clamp_message(text)
+        if self._handle_command(context, text):
+            return
         if self.require_at and not triggered:
             if not has_at(context.message, context.raw_message, context.self_id):
                 return
 
         if not text:
-            return
-
-        text = clamp_message(text)
-        if self._handle_command(context, text):
             return
 
         if self._is_rate_limited(context.group_id):
