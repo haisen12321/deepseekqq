@@ -35,6 +35,7 @@ class DeepSeekClient:
                 data = response.json()
                 choices = data.get("choices", [])
                 if not choices:
+                    logging.warning("DeepSeek API returned empty choices: %s", data)
                     return False, "未获取到模型回复。"
                 message = choices[0].get("message", {})
                 content = message.get("content", "")

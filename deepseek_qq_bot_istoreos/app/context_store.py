@@ -1,6 +1,7 @@
 import json
 import os
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 from filelock import FileLock
 
@@ -15,6 +16,7 @@ class ContextStore:
 
     def __post_init__(self) -> None:
         self._lock = FileLock(self.storage_path + ".lock")
+        self._mem_lock = Lock()
         self._groups: dict[str, list[dict[str, str]]] = {}
         self._ensure_dir()
         self._load()
@@ -33,13 +35,15 @@ class ContextStore:
                     data = json.load(f)
                 groups = data.get("groups", {}) if isinstance(data, dict) else {}
                 if isinstance(groups, dict):
-                    self._groups = {
-                        str(group_id): list(messages)
-                        for group_id, messages in groups.items()
-                        if isinstance(messages, list)
-                    }
+                    with self._mem_lock:
+                        self._groups = {
+                            str(group_id): list(messages)
+                            for group_id, messages in groups.items()
+                            if isinstance(messages, list)
+                        }
             except json.JSONDecodeError:
-                self._groups = {}
+                with self._mem_lock:
+                    self._groups = {}
 
     def _save(self) -> None:
         temp_path = self.storage_path + ".tmp"
@@ -61,27 +65,30 @@ class ContextStore:
 
     def get_messages(self, group_id: int) -> list[dict[str, str]]:
         group_key = str(group_id)
-        self._ensure_system(group_key)
-        return list(self._groups.get(group_key, []))
+        with self._mem_lock:
+            self._ensure_system(group_key)
+            return list(self._groups.get(group_key, []))
 
     def reset(self, group_id: int) -> None:
         group_key = str(group_id)
-        self._groups[group_key] = []
-        self._ensure_system(group_key)
-        self._save()
+        with self._mem_lock:
+            self._groups[group_key] = []
+            self._ensure_system(group_key)
+            self._save()
 
     def append_turn(self, group_id: int, user_text: str, assistant_text: str) -> None:
         group_key = str(group_id)
-        self._ensure_system(group_key)
-        messages = self._groups.get(group_key, [])
-        user_content = clamp_message(user_text)
-        assistant_content = clamp_message(assistant_text)
-        if user_content:
-            messages.append({"role": "user", "content": user_content})
-        if assistant_content:
-            messages.append({"role": "assistant", "content": assistant_content})
-        self._groups[group_key] = self._trim(messages)
-        self._save()
+        with self._mem_lock:
+            self._ensure_system(group_key)
+            messages = self._groups.get(group_key, [])
+            user_content = clamp_message(user_text)
+            assistant_content = clamp_message(assistant_text)
+            if user_content:
+                messages.append({"role": "user", "content": user_content})
+            if assistant_content:
+                messages.append({"role": "assistant", "content": assistant_content})
+            self._groups[group_key] = self._trim(messages)
+            self._save()
 
     def _trim(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         system_messages = [m for m in messages if m.get("role") == "system"]

@@ -19,7 +19,9 @@ def clamp_message(text: str, max_len: int = MAX_SINGLE_MESSAGE_LENGTH) -> str:
     text = text.strip()
     if len(text) <= max_len:
         return text
-    return text[:max_len] + "..."
+    if max_len <= 3:
+        return text[:max_len]
+    return text[: max_len - 3] + "..."
 
 
 def split_reply(text: str, chunk_size: int = REPLY_CHUNK_SIZE) -> list[str]:

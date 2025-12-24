@@ -1,6 +1,5 @@
 import json
 import logging
-import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -14,6 +13,7 @@ from .utils import setup_logger
 
 class RequestHandler(BaseHTTPRequestHandler):
     handler: EventHandler
+    max_body_bytes: int = 1024 * 1024
 
     def _send_ok(self) -> None:
         self.send_response(200)
@@ -32,6 +32,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_ok()
             return
         length = int(self.headers.get("Content-Length", 0))
+        if length > self.max_body_bytes:
+            logging.warning("Request body too large: %s bytes", length)
+            self._send_ok()
+            return
         body = self.rfile.read(length) if length > 0 else b""
         try:
             payload = json.loads(body.decode("utf-8")) if body else {}
@@ -40,7 +44,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_ok()
             return
 
-        threading.Thread(target=self._handle_event, args=(payload,), daemon=True).start()
+        self._handle_event(payload)
         self._send_ok()
 
     def _handle_event(self, payload: dict[str, Any]) -> None:
