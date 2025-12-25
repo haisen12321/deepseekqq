@@ -11,9 +11,15 @@ def _get_bool(value: str, default: bool) -> bool:
 
 @dataclass
 class Config:
-    deepseek_api_key: str
+    deepseek_api_key: str | None
     deepseek_base_url: str
     deepseek_model: str
+    llm_provider: str
+    grok_api_key: str | None
+    grok_base_url: str
+    grok_model: str
+    group_config_path: str | None
+    group_config_json: str | None
     onebot_base_url: str
     onebot_access_token: str | None
     single_group_id: int
@@ -28,9 +34,17 @@ class Config:
 def load_config() -> Config:
     load_dotenv()
 
+    llm_provider = os.getenv("LLM_PROVIDER", "deepseek").strip().lower()
+    if llm_provider not in {"deepseek", "grok"}:
+        raise ValueError("LLM_PROVIDER must be deepseek or grok")
+
     deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not deepseek_api_key:
+    if llm_provider == "deepseek" and not deepseek_api_key:
         raise ValueError("DEEPSEEK_API_KEY is required")
+
+    grok_api_key = os.getenv("GROK_API_KEY")
+    if llm_provider == "grok" and not grok_api_key:
+        raise ValueError("GROK_API_KEY is required")
 
     onebot_base_url = os.getenv("ONEBOT_BASE_URL")
     if not onebot_base_url:
@@ -44,6 +58,12 @@ def load_config() -> Config:
         deepseek_api_key=deepseek_api_key,
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        llm_provider=llm_provider,
+        grok_api_key=grok_api_key,
+        grok_base_url=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"),
+        grok_model=os.getenv("GROK_MODEL", "grok-2-latest"),
+        group_config_path=os.getenv("GROUP_CONFIG_PATH"),
+        group_config_json=os.getenv("GROUP_CONFIG_JSON"),
         onebot_base_url=onebot_base_url,
         onebot_access_token=os.getenv("ONEBOT_ACCESS_TOKEN"),
         single_group_id=int(single_group_id),
