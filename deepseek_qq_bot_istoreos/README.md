@@ -8,9 +8,10 @@
 - 标准库 HTTP Server：`POST /onebot/event`、`GET /health`
 - 群内共享上下文（按 group_id 维护），持久化到 JSON 文件
 - 触发规则：@机器人 或 `/ai` 前缀（可配置）
-- 指令：`/help` `/ping` `/reset`
+- 指令：`/help` `/ping` `/reset` `/model`
 - 速率限制：10 秒内最多回复一次
 - 回复自动分段（>1500 字拆分发送）
+- 支持多模型（DeepSeek/Grok），可按群配置提示词
 
 ## 目录结构
 
@@ -42,8 +43,12 @@ deepseek_qq_bot_istoreos/
 - `DEEPSEEK_API_KEY`（必填）
 - `DEEPSEEK_BASE_URL`（默认 `https://api.deepseek.com`）
 - `DEEPSEEK_MODEL`（默认 `deepseek-chat`）
+- `GROK_API_KEY`（使用 Grok 时必填）
+- `GROK_BASE_URL`（默认 `https://api.x.ai/v1`）
+- `GROK_MODEL`（默认 `grok-2-latest`）
 - `ONEBOT_BASE_URL`（必填，例如 `http://127.0.0.1:3000`）
 - `ONEBOT_ACCESS_TOKEN`（可选，OneBot token）
+- `LLM_PROVIDER`（默认 `deepseek`，可选 `deepseek`/`grok`）
 - `SINGLE_GROUP_ID`（必填，仅该群生效）
 - `REQUIRE_AT`（默认 `true`）
 - `BOT_SELF_ID`（可选，机器人 QQ 号）
@@ -51,6 +56,8 @@ deepseek_qq_bot_istoreos/
 - `STORAGE_PATH`（默认 `./data/state.json`）
 - `LOG_LEVEL`（默认 `INFO`）
 - `PORT`（默认 `8080`）
+- `GROUP_CONFIG_PATH`（可选，默认 `./data/groups.json`）
+- `GROUP_CONFIG_JSON`（可选，JSON 字符串）
 
 > OneBot 认证常见方式是在请求头加 `Authorization: Bearer <token>`，本项目已支持。部分 OneBot 也支持在 URL 参数中传递 token，可按 NapCat 配置。
 
@@ -115,6 +122,32 @@ http://<设备IP>:8080/onebot/event
   - `/help`：帮助
   - `/ping`：pong
   - `/reset`：清空本群共享上下文
+  - `/model`：查看当前群使用的模型
+
+## 按群配置提示词/模型
+
+可以通过 `GROUP_CONFIG_PATH` 或 `GROUP_CONFIG_JSON` 设置不同群的 prompt 与模型提供方。提示词变更采用策略 A：仅对新上下文生效（需要 `/reset` 清空后生效）。
+
+示例 `groups.json`：
+
+```json
+{
+  "565492934": {
+    "prompt": "你是…（群A的风格）",
+    "provider": "deepseek"
+  },
+  "464781303": {
+    "prompt": "你是…（群B更严肃）",
+    "provider": "grok"
+  }
+}
+```
+
+也可以用环境变量：
+
+```bash
+GROUP_CONFIG_JSON='{\"565492934\":{\"prompt\":\"群A风格\",\"provider\":\"deepseek\"}}'
+```
 
 ## 常见问题排查
 

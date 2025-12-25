@@ -1,15 +1,12 @@
-import logging
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from .context_store import ContextStore
-from .deepseek_client import DeepSeekClient
+from .group_config import GroupConfigManager
+from .llm import LLMProvider
 from .onebot_client import OneBotClient
 from .utils import clamp_message, extract_text, has_at, split_reply, strip_ai_prefix
-
-
-SYSTEM_PROMPT = "你是群聊助手，回答简洁，避免刷屏。"
 
 
 @dataclass
@@ -25,7 +22,9 @@ class EventHandler:
     def __init__(
         self,
         store: ContextStore,
-        deepseek: DeepSeekClient,
+        providers: dict[str, LLMProvider],
+        group_config: GroupConfigManager,
+        default_provider: str,
         onebot: OneBotClient,
         require_at: bool,
         single_group_id: int,
@@ -33,7 +32,9 @@ class EventHandler:
         rate_limit_seconds: int = 10,
     ) -> None:
         self.store = store
-        self.deepseek = deepseek
+        self.providers = providers
+        self.group_config = group_config
+        self.default_provider = default_provider
         self.onebot = onebot
         self.require_at = require_at
         self.single_group_id = single_group_id
@@ -77,15 +78,21 @@ class EventHandler:
             self._send_reply(context.group_id, "稍等一下，10 秒后再试。")
             return
 
-        messages = self.store.get_messages(context.group_id)
+        prompt = self.group_config.get_prompt(context.group_id)
+        _, provider = self._get_provider(context.group_id)
+        if not provider:
+            self._send_reply(context.group_id, "模型未配置，请联系管理员。")
+            return
+
+        messages = self.store.get_messages(context.group_id, prompt)
         messages.append({"role": "user", "content": text})
 
-        success, reply = self.deepseek.chat(messages)
+        success, reply = provider.chat(messages)
         if not success:
             self._send_reply(context.group_id, reply)
             return
 
-        self.store.append_turn(context.group_id, text, reply)
+        self.store.append_turn(context.group_id, text, reply, prompt)
         self._send_reply(context.group_id, reply)
 
     def _handle_command(self, context: HandlerContext, text: str) -> bool:
@@ -95,20 +102,35 @@ class EventHandler:
         if text.strip() == "/help":
             help_text = (
                 "触发方式：@机器人 或 /ai 前缀\n"
-                "指令：/help /ping /reset"
+                "指令：/help /ping /reset /model"
             )
             self._send_reply(context.group_id, help_text)
             return True
         if text.strip() == "/reset":
-            self.store.reset(context.group_id)
+            prompt = self.group_config.get_prompt(context.group_id)
+            self.store.reset(context.group_id, prompt)
             self._send_reply(context.group_id, "已清空本群上下文。")
+            return True
+        if text.strip() == "/model":
+            provider_name, provider = self._get_provider(context.group_id)
+            if not provider:
+                self._send_reply(context.group_id, "模型未配置，请联系管理员。")
+                return True
+            self._send_reply(
+                context.group_id,
+                f"provider={provider_name}, model={provider.model}",
+            )
             return True
         return False
 
-    def _send_reply(self, group_id: int, text: str) -> None:
+    def _send_reply(self, group_id: int, text: str) -> bool:
+        ok = True
         for chunk in split_reply(text):
-            self.onebot.send_group_msg(group_id, chunk)
-        self._last_reply_time[group_id] = time.time()
+            if not self.onebot.send_group_msg(group_id, chunk):
+                ok = False
+        if ok:
+            self._last_reply_time[group_id] = time.time()
+        return ok
 
     def _is_group_message(self, event: dict[str, Any]) -> bool:
         return (
@@ -121,3 +143,11 @@ class EventHandler:
         if not last:
             return False
         return (time.time() - last) < self.rate_limit_seconds
+
+    def _get_provider(self, group_id: int) -> tuple[str, LLMProvider | None]:
+        provider_name = self.group_config.get_model_for_group(group_id)
+        provider = self.providers.get(provider_name)
+        if not provider:
+            provider_name = self.default_provider
+            provider = self.providers.get(provider_name)
+        return provider_name, provider

@@ -12,7 +12,7 @@ from .utils import clamp_message
 class ContextStore:
     storage_path: str
     max_turns: int
-    system_prompt: str
+    default_system_prompt: str
 
     def __post_init__(self) -> None:
         self._lock = FileLock(self.storage_path + ".lock")
@@ -53,33 +53,46 @@ class ContextStore:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             os.replace(temp_path, self.storage_path)
 
-    def _ensure_system(self, group_id: str) -> None:
+    def _ensure_system(self, group_id: str, system_prompt: str | None = None) -> None:
         messages = self._groups.get(group_id, [])
-        if self.system_prompt:
-            if not messages or messages[0].get("role") != "system":
-                messages = [
-                    {"role": "system", "content": self.system_prompt},
-                    *[m for m in messages if m.get("role") != "system"],
-                ]
+        prompt = system_prompt or self.default_system_prompt
+        system_messages = [m for m in messages if m.get("role") == "system"]
+        non_system = [m for m in messages if m.get("role") != "system"]
+        if system_messages:
+            messages = [system_messages[0]] + non_system
+        elif prompt:
+            messages = [{"role": "system", "content": prompt}] + non_system
+        else:
+            messages = non_system
         self._groups[group_id] = messages
 
-    def get_messages(self, group_id: int) -> list[dict[str, str]]:
+    def get_messages(
+        self,
+        group_id: int,
+        system_prompt: str | None = None,
+    ) -> list[dict[str, str]]:
         group_key = str(group_id)
         with self._mem_lock:
-            self._ensure_system(group_key)
+            self._ensure_system(group_key, system_prompt)
             return list(self._groups.get(group_key, []))
 
-    def reset(self, group_id: int) -> None:
+    def reset(self, group_id: int, system_prompt: str | None = None) -> None:
         group_key = str(group_id)
         with self._mem_lock:
             self._groups[group_key] = []
-            self._ensure_system(group_key)
+            self._ensure_system(group_key, system_prompt)
             self._save()
 
-    def append_turn(self, group_id: int, user_text: str, assistant_text: str) -> None:
+    def append_turn(
+        self,
+        group_id: int,
+        user_text: str,
+        assistant_text: str,
+        system_prompt: str | None = None,
+    ) -> None:
         group_key = str(group_id)
         with self._mem_lock:
-            self._ensure_system(group_key)
+            self._ensure_system(group_key, system_prompt)
             messages = self._groups.get(group_key, [])
             user_content = clamp_message(user_text)
             assistant_content = clamp_message(assistant_text)
